@@ -34,8 +34,7 @@ app.get("/start", async (req, res) => {
     "--no-zygote",
     "--disable-gpu"
   ]
-   }
-    });
+ });
 
     const page = await browser.newPage();
 
