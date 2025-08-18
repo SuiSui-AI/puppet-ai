@@ -7,12 +7,12 @@ const app = express();
 
 // ---------- GEMINI SETUP ----------
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
 
 // ---------- ANTI-SPAM CONFIG ----------
-const REPLY_PROBABILITY = 0.7; // 70% chance, since trigger word used
+const REPLY_PROBABILITY = 0.7; // 70% chance
 const COOLDOWN_MS = 60 * 1000; // 1 min cooldown per user
-const GLOBAL_INTERVAL = 10 * 1000; // 10 sec interval between replies
+const GLOBAL_INTERVAL = 10 * 1000; // 10 sec gap between replies
 
 let lastReplyTime = 0;
 const userCooldown = new Map();
@@ -20,7 +20,7 @@ const userCooldown = new Map();
 // ---------- TRIGGERS ----------
 const TRIGGERS = ["!suisui", "!hellosuisui", "!hello suisui", "!sui"];
 
-// ---------- PUPPETEER ROUTE ----------
+// ---------- START ROUTE ----------
 app.get("/start", async (req, res) => {
   try {
     const browser = await puppeteer.launch({
@@ -32,21 +32,21 @@ app.get("/start", async (req, res) => {
         "--disable-accelerated-2d-canvas",
         "--no-first-run",
         "--no-zygote",
-        "--disable-gpu"
+        "--disable-gpu",
       ],
     });
 
     const page = await browser.newPage();
 
-    // Load cookies (pehle se saved)
+    // Load cookies if available
     if (fs.existsSync("cookies.json")) {
       const cookies = JSON.parse(fs.readFileSync("cookies.json"));
       await page.setCookie(...cookies);
       console.log("✅ Cookies loaded");
     }
 
-    // YouTube live chat page open
-    await page.goto("https://www.youtube.com/live_chat?is_popout=1&v=VIDEO_ID", {
+    // Open YouTube live chat
+    await page.goto("https://www.youtube.com/live/oJDmPhb4YRw?si=KDsHaNoVmcaRaLxD", {
       waitUntil: "networkidle2",
     });
 
@@ -60,42 +60,57 @@ app.get("/start", async (req, res) => {
       const lowerMsg = msg.toLowerCase();
 
       // Trigger check
-      if (!TRIGGERS.some(t => lowerMsg.includes(t))) return;
+      if (!TRIGGERS.some((t) => lowerMsg.includes(t))) return;
 
       // Cooldown check
       if (userCooldown.has(user) && now - userCooldown.get(user) < COOLDOWN_MS) return;
       if (now - lastReplyTime < GLOBAL_INTERVAL) return;
 
+      if (Math.random() > REPLY_PROBABILITY) return;
+
       userCooldown.set(user, now);
       lastReplyTime = now;
 
-      if (Math.random() > REPLY_PROBABILITY) return;
-
       try {
-        const result = await model.generateContent(`Reply in a fun, friendly way to: "${msg}"`);
+        const result = await model.generateContent(
+          `YouTube live chat message: "${msg}". Reply in short, fun Hinglish style.`
+        );
         const reply = result.response.text();
 
-        console.log(`🤖 Replying to ${user}: ${reply}`);
+        console.log(`🤖 Replying: ${reply}`);
 
-        await page.evaluate((reply) => {
-          const input = document.querySelector("#input.yt-live-chat-text-input-field-renderer");
-          const btn = document.querySelector("#send-button button");
-          if (input && btn) {
-            input.innerText = reply;
-            btn.click();
-          }
-        }, reply);
-
+        // Type reply into chat box
+        await page.type("#input", reply);
+        await page.keyboard.press("Enter");
       } catch (err) {
-        console.error("❌ Gemini error:", err);
+        console.error("❌ Gemini reply error:", err);
       }
     });
 
-    res.send("✅ Bot started and connected to chat!");
-  } catch (err) {
-    console.error("❌ Puppeteer error:", err);
+    // Inject script to detect messages
+    await page.evaluate(() => {
+      const observer = new MutationObserver(() => {
+        document.querySelectorAll("#message").forEach((el) => {
+          const user = el.closest("#chat-metadata")?.innerText || "Unknown";
+          const msg = el.innerText;
+          window.handleNewMessage(user, msg);
+        });
+      });
+      observer.observe(document.querySelector("#item-scroller"), {
+        childList: true,
+        subtree: true,
+      });
+    });
+
+    res.send("🤖 Bot started successfully!");
+  } catch (error) {
+    console.error("❌ Error starting bot:", error);
     res.status(500).send("Bot failed to start.");
   }
 });
 
-app.listen(3000, () => console.log("🚀 Server running on port 3000"));
+// ---------- SERVER LISTEN ----------
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+});
