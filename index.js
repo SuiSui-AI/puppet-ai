@@ -1,5 +1,6 @@
 import express from "express";
-import puppeteer from "puppeteer";
+import puppeteer from "puppeteer-core";
+import chromium from "@sparticuz/chromium";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import fs from "fs";
 
@@ -24,16 +25,10 @@ const TRIGGERS = ["!suisui", "!hellosuisui", "!hello suisui", "!sui"];
 app.get("/start", async (req, res) => {
   try {
     const browser = await puppeteer.launch({
-      headless: true,
-      args: [
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-dev-shm-usage",
-        "--disable-accelerated-2d-canvas",
-        "--no-first-run",
-        "--no-zygote",
-        "--disable-gpu",
-      ],
+      args: chromium.args,
+      defaultViewport: chromium.defaultViewport,
+      executablePath: await chromium.executablePath(),
+      headless: chromium.headless,
     });
 
     const page = await browser.newPage();
@@ -47,8 +42,8 @@ app.get("/start", async (req, res) => {
       }
     }
 
-    // YouTube Live Chat (replace VIDEO_ID)
-    await page.goto("https://www.youtube.com/live/oJDmPhb4YRw?si=KDsHaNoVmcaRaLxD", {
+    // Go to YouTube Live Chat (replace VIDEO_ID with your live ID)
+    await page.goto("https://www.youtube.com/live/oJDmPhb4YRw", {
       waitUntil: "networkidle2",
     });
 
