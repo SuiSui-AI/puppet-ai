@@ -21,60 +21,30 @@ const userCooldown = new Map();
 // ---------- TRIGGERS ----------
 const TRIGGERS = ["!suisui", "!hellosuisui", "!hello suisui", "!sui"];
 
-// ---------- CHANNEL STORE ----------
-const CHANNEL_FILE = "channels.json";
+// ---------- CHANNEL LIST ----------
+let channels = [];
 
-// load channels
-function loadChannels() {
-  if (fs.existsSync(CHANNEL_FILE)) {
-    return JSON.parse(fs.readFileSync(CHANNEL_FILE));
-  }
-  return [];
-}
+// ---------- ADD CHANNEL (GET via browser) ----------
+app.get("/addChannel", (req, res) => {
+  const url = req.query.url;
+  if (!url) return res.status(400).send("❌ Please provide ?url=LIVE_URL");
 
-// save channels
-function saveChannels(channels) {
-  fs.writeFileSync(CHANNEL_FILE, JSON.stringify(channels, null, 2));
-}
-
-let CHANNELS = loadChannels();
-
-// ---------- API ENDPOINTS ----------
-
-// Add channel
-app.post("/addChannel", (req, res) => {
-  const { url } = req.body;
-  if (!url) return res.status(400).send("Missing URL");
-
-  if (!CHANNELS.includes(url)) {
-    CHANNELS.push(url);
-    saveChannels(CHANNELS);
-  }
-  res.send({ success: true, channels: CHANNELS });
+  channels.push(url);
+  res.send(`✅ Channel added: ${url}`);
 });
 
-// Remove channel
-app.post("/removeChannel", (req, res) => {
-  const { url } = req.body;
-  if (!url) return res.status(400).send("Missing URL");
-
-  CHANNELS = CHANNELS.filter((c) => c !== url);
-  saveChannels(CHANNELS);
-  res.send({ success: true, channels: CHANNELS });
-});
-
-// List channels
+// ---------- VIEW CHANNELS ----------
 app.get("/channels", (req, res) => {
-  res.send(CHANNELS);
+  res.json(channels);
 });
 
 // ---------- START BOT ----------
 app.get("/start", async (req, res) => {
-  try {
-    if (CHANNELS.length === 0) {
-      return res.status(400).send("⚠️ No channels configured! Use /addChannel first.");
-    }
+  if (channels.length === 0) {
+    return res.status(400).send("❌ No channels added yet. Use /addChannel first.");
+  }
 
+  try {
     const browser = await puppeteer.launch({
       headless: true,
       args: [
@@ -88,7 +58,8 @@ app.get("/start", async (req, res) => {
       ],
     });
 
-    for (const url of CHANNELS) {
+    // loop over all channels
+    for (const url of channels) {
       const page = await browser.newPage();
 
       // Load cookies (if available)
@@ -100,7 +71,7 @@ app.get("/start", async (req, res) => {
         }
       }
 
-      await page.goto(url, { waitUntil: "networkidle2", timeout: 60000 });
+      await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
       console.log(`✅ Connected to Live Chat: ${url}`);
 
       // Observe chat messages
@@ -167,7 +138,7 @@ app.get("/start", async (req, res) => {
       process.exit();
     });
 
-    res.send("✅ Bot started on all channels!");
+    res.send("✅ Bot started for all added channels!");
   } catch (err) {
     console.error("❌ Bot failed:", err);
     res.status(500).send("Bot failed to start.");
