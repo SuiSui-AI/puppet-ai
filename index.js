@@ -43,7 +43,7 @@ app.get("/start", async (req, res) => {
     }
 
     // Go to YouTube Live Chat (replace VIDEO_ID with your live ID)
-    await page.goto("https://www.youtube.com/live/oJDmPhb4YRw", {
+    await page.goto("https://www.youtube.com/live/syTIE2kTOac?si=uJjaF_wFPO6_j1KM", {
       waitUntil: "networkidle2",
     });
 
