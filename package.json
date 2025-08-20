@@ -4,7 +4,7 @@
   "type": "module",
   "main": "index.js",
   "scripts": {
-    "postinstall": "npx puppeteer browsers install chrome",
+    "postinstall": "PUPPETEER_CACHE_DIR=/opt/render/.cache/puppeteer npx puppeteer browsers install chrome",
     "start": "node index.js"
   },
   "dependencies": {
