@@ -1,49 +1,22 @@
 import express from "express";
 import puppeteer from "puppeteer";
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import fs from "fs";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 const app = express();
-app.use(express.json());
+const PORT = process.env.PORT || 10000;
 
-// ---------- GEMINI SETUP ----------
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
-
-// ---------- ANTI-SPAM CONFIG ----------
-const REPLY_PROBABILITY = 0.7; // 70% chance
-const COOLDOWN_MS = 60 * 1000; // 1 min cooldown per user
-const GLOBAL_INTERVAL = 10 * 1000; // 10 sec between replies
-
-let lastReplyTime = 0;
-const userCooldown = new Map();
-
-// ---------- TRIGGERS ----------
-const TRIGGERS = ["!suisui", "!hellosuisui", "!hello suisui", "!sui"];
-
-// ---------- CHANNEL LIST ----------
+// Load channels.json
 let channels = [];
+if (fs.existsSync("channels.json")) {
+  channels = JSON.parse(fs.readFileSync("channels.json", "utf-8"));
+}
 
-// ---------- ADD CHANNEL (GET via browser) ----------
-app.get("/addChannel", (req, res) => {
-  const url = req.query.url;
-  if (!url) return res.status(400).send("❌ Please provide ?url=LIVE_URL");
+// AI setup
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-  channels.push(url);
-  res.send(`✅ Channel added: ${url}`);
-});
-
-// ---------- VIEW CHANNELS ----------
-app.get("/channels", (req, res) => {
-  res.json(channels);
-});
-
-// ---------- START BOT ----------
-app.get("/start", async (req, res) => {
-  if (channels.length === 0) {
-    return res.status(400).send("❌ No channels added yet. Use /addChannel first.");
-  }
-
+// Helper: run Puppeteer bot
+async function runBot(liveUrl) {
   try {
     const browser = await puppeteer.launch({
       headless: true,
@@ -58,93 +31,50 @@ app.get("/start", async (req, res) => {
       ],
     });
 
-    // loop over all channels
-    for (const url of channels) {
-      const page = await browser.newPage();
+    const page = await browser.newPage();
+    await page.goto(liveUrl, { waitUntil: "networkidle2", timeout: 60000 });
 
-      // Load cookies (if available)
-      if (fs.existsSync("cookies.json")) {
-        const cookies = JSON.parse(fs.readFileSync("cookies.json"));
-        if (cookies.length > 0) {
-          await page.setCookie(...cookies);
-          console.log("✅ Cookies loaded");
-        }
-      }
+    console.log(`✅ Bot started on ${liveUrl}`);
 
-      await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
-      console.log(`✅ Connected to Live Chat: ${url}`);
+    // Example: Read live chat or interact
+    await page.waitForTimeout(5000);
 
-      // Observe chat messages
-      await page.exposeFunction("handleNewMessage", async (user, msg) => {
-        console.log(`💬 ${user}: ${msg}`);
-
-        const now = Date.now();
-        const lowerMsg = msg.toLowerCase();
-
-        // Trigger check
-        if (!TRIGGERS.some((t) => lowerMsg.includes(t))) return;
-
-        // Global cooldown
-        if (now - lastReplyTime < GLOBAL_INTERVAL) return;
-
-        // User cooldown
-        if (userCooldown.has(user) && now - userCooldown.get(user) < COOLDOWN_MS) return;
-
-        // Probability
-        if (Math.random() > REPLY_PROBABILITY) return;
-
-        try {
-          const aiReply = await model.generateContent(
-            `User: ${msg}\nBot: (reply in casual Hinglish, short and funny)`
-          );
-
-          const replyText = aiReply.response.text();
-          console.log(`🤖 Replying: ${replyText}`);
-
-          await page.type("#input", replyText);
-          await page.keyboard.press("Enter");
-
-          // update timers
-          lastReplyTime = now;
-          userCooldown.set(user, now);
-        } catch (err) {
-          console.error("❌ AI error:", err);
-        }
-      });
-
-      // Inject script to listen to chat
-      await page.evaluate(() => {
-        const observer = new MutationObserver(() => {
-          const items = document.querySelectorAll("#message");
-          const lastItem = items[items.length - 1];
-          if (lastItem) {
-            const user = lastItem.closest("yt-live-chat-text-message-renderer")?.querySelector("#author-name")?.innerText;
-            const msg = lastItem.innerText;
-            if (user && msg) {
-              window.handleNewMessage(user, msg);
-            }
-          }
-        });
-        observer.observe(document.querySelector("#item-list"), { childList: true });
-      });
-    }
-
-    // Save cookies before exit
-    process.on("SIGINT", async () => {
-      const cookies = await browser.cookies();
-      fs.writeFileSync("cookies.json", JSON.stringify(cookies, null, 2));
-      console.log("💾 Cookies saved!");
-      await browser.close();
-      process.exit();
-    });
-
-    res.send("✅ Bot started for all added channels!");
+    await browser.close();
   } catch (err) {
     console.error("❌ Bot failed:", err);
-    res.status(500).send("Bot failed to start.");
   }
+}
+
+// Route: Start bot for all channels
+app.get("/start", async (req, res) => {
+  if (channels.length === 0) {
+    return res.status(400).send("No channels found. Add channel first.");
+  }
+
+  for (const ch of channels) {
+    runBot(ch.url);
+  }
+
+  res.send("✅ Bot started for all channels");
 });
 
-// ---------- SERVER LISTEN ----------
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+// Route: Add new channel
+app.get("/addChannel", (req, res) => {
+  const { url } = req.query;
+  if (!url) return res.status(400).send("Channel URL required");
+
+  channels.push({ url });
+  fs.writeFileSync("channels.json", JSON.stringify(channels, null, 2));
+
+  res.send(`✅ Channel added: ${url}`);
+});
+
+// Root
+app.get("/", (req, res) => {
+  res.send("🚀 YT Bot is live!");
+});
+
+// Start server
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+});
